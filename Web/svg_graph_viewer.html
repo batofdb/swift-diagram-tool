@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SVG Graph Viewer with Cytoscape</title>
+
+  <style>
+    body, html {
+      margin: 0; padding: 0; height: 100%;
+      overflow: hidden;
+    }
+    #cy {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <input type="search" id="search" placeholder="Search nodes..." />
+  <div id="search-results"></div>
+  <div id="cy"></div>
+  <div id="side-panel"></div>
+
+  <!-- Cytoscape core -->
+  <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+
+  <!-- WebCola library (cola layout dependency) -->
+  <script src="https://unpkg.com/webcola/WebCola/cola.min.js"></script>
+
+  <!-- Cytoscape-cola plugin -->
+  <script src="https://unpkg.com/cytoscape-cola/cytoscape-cola.js"></script>
+
+  <script>
+    // Wait for all dependencies to load before registering plugin
+    function initializeCytoscape() {
+      if (window.cytoscapeCola && typeof cytoscape !== 'undefined') {
+        console.log('Registering Cytoscape Cola plugin');
+        cytoscape.use(window.cytoscapeCola);
+        console.log('Plugin registered successfully');
+      } else {
+        console.error('CytoscapeCola plugin or Cytoscape core is missing');
+        console.log('Available:', { cytoscapeCola: !!window.cytoscapeCola, cytoscape: typeof cytoscape });
+      }
+    }
+    
+    // Initialize when DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initializeCytoscape);
+    } else {
+      initializeCytoscape();
+    }
+  </script>
+
+  <!-- Your app JS, deferred to run after dependencies load -->
+  <script src="viewer.js" defer></script>
+
+</body>
+</html>

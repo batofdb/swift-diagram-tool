@@ -1,0 +1,49 @@
+# Generated Output Files
+*.json
+*.dot
+*.html
+!Web/*.html
+!test_output.html
+test_output*.html
+
+# Swift Package Manager
+.build/
+Package.resolved
+/Packages
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserdatad
+DerivedData/
+.swiftpm/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node.js (for web tooling)
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.netrc
+
+# Log files
+*.log
