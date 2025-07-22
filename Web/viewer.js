@@ -48,7 +48,7 @@ function initializeGraph() {
     
     // Fetch and initialize graph data with cache-busting
     const cacheBuster = Date.now();
-    fetch(`complex_system.json?v=${cacheBuster}`)
+    fetch(`example_analysis.json?v=${cacheBuster}`)
       .then((res) => {
         console.log('Fetch response:', {
           status: res.status,
