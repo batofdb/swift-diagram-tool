@@ -47,9 +47,31 @@ public class RelationshipGraph {
     public init() {}
     
     public func addType(_ type: TypeInfo) {
+        // Handle extension merging into existing class
+        if let existingNode = nodes[type.name] {
+            if type.kind == .extension && existingNode.type.kind == .class {
+                // Merge extension into existing class
+                let mergedType = mergeExtensionIntoClass(class: existingNode.type, extension: type)
+                let mergedNode = Node(type: mergedType)
+                nodes[type.name] = mergedNode
+                addTypeRelationships(mergedType)
+                return
+            } else if type.kind == .class && existingNode.type.kind == .extension {
+                // Merge existing extension into new class
+                let mergedType = mergeExtensionIntoClass(class: type, extension: existingNode.type)
+                let mergedNode = Node(type: mergedType)
+                nodes[type.name] = mergedNode
+                addTypeRelationships(mergedType)
+                return
+            }
+        }
+        
         let node = Node(type: type)
         nodes[type.name] = node
-        
+        addTypeRelationships(type)
+    }
+    
+    private func addTypeRelationships(_ type: TypeInfo) {
         // Add inheritance relationships
         for inherited in type.inheritedTypes {
             addRelationship(from: type.name, to: inherited, kind: .inheritance)
@@ -96,6 +118,46 @@ public class RelationshipGraph {
                 }
             }
         }
+    }
+    
+    private func mergeExtensionIntoClass(class classType: TypeInfo, extension extensionType: TypeInfo) -> TypeInfo {
+        // Combine protocol conformances
+        let combinedProtocols = classType.conformedProtocols.union(extensionType.conformedProtocols)
+        
+        // Combine methods (extension methods are added to class methods)
+        let combinedMethods = classType.methods + extensionType.methods
+        
+        // Combine other arrays
+        let combinedInitializers = classType.initializers + extensionType.initializers
+        let combinedSubscripts = classType.subscripts + extensionType.subscripts
+        let combinedTypeAliases = classType.typeAliases + extensionType.typeAliases
+        let combinedNestedTypes = classType.nestedTypes + extensionType.nestedTypes
+        let combinedAssociatedTypes = classType.associatedTypes + extensionType.associatedTypes
+        let combinedProtocolRequirements = classType.protocolRequirements + extensionType.protocolRequirements
+        let combinedGenericParameters = classType.genericParameters + extensionType.genericParameters
+        let combinedGenericConstraints = classType.genericConstraints + extensionType.genericConstraints
+        let combinedAttributes = classType.attributes + extensionType.attributes
+        
+        return TypeInfo(
+            name: classType.name,
+            kind: classType.kind, // Keep class kind
+            moduleName: classType.moduleName,
+            accessLevel: classType.accessLevel,
+            inheritedTypes: classType.inheritedTypes, // Extensions don't add inheritance
+            conformedProtocols: combinedProtocols,
+            properties: classType.properties, // Extensions don't add stored properties in Swift
+            methods: combinedMethods,
+            initializers: combinedInitializers,
+            subscripts: combinedSubscripts,
+            typeAliases: combinedTypeAliases,
+            nestedTypes: combinedNestedTypes,
+            associatedTypes: combinedAssociatedTypes,
+            protocolRequirements: combinedProtocolRequirements,
+            genericParameters: combinedGenericParameters,
+            genericConstraints: combinedGenericConstraints,
+            attributes: combinedAttributes,
+            location: classType.location // Keep class location
+        )
     }
     
     public func addRelationship(from: String, to: String, kind: Relationship.Kind, details: String? = nil) {
