@@ -21,6 +21,7 @@ public struct TypeInfo: Codable, Equatable {
     public let genericConstraints: [GenericConstraintInfo]
     public let attributes: [AttributeInfo]
     public let location: SourceLocation
+    public let isPhantom: Bool
 
     public init(
         name: String,
@@ -40,7 +41,8 @@ public struct TypeInfo: Codable, Equatable {
         genericParameters: [GenericParameterInfo] = [],
         genericConstraints: [GenericConstraintInfo] = [],
         attributes: [AttributeInfo] = [],
-        location: SourceLocation
+        location: SourceLocation,
+        isPhantom: Bool = false
     ) {
         self.name = name
         self.kind = kind
@@ -60,6 +62,7 @@ public struct TypeInfo: Codable, Equatable {
         self.genericConstraints = genericConstraints
         self.attributes = attributes
         self.location = location
+        self.isPhantom = isPhantom
     }
 }
 

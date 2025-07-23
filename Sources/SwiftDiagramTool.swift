@@ -112,6 +112,15 @@ struct Analyze: ParsableCommand {
         for type in types {
             graph.addType(type)
         }
+        
+        // Analyze protocol relationships after all types are added
+        graph.analyzeProtocolRelationships()
+        
+        // Analyze deep type relationships (generics, collections, wrappers)
+        graph.analyzeDeepTypeRelationships()
+        
+        // Analyze protocol internal structure (associated types, requirements)
+        graph.analyzeProtocolInternalStructure()
 
         let generator: String
         switch format {

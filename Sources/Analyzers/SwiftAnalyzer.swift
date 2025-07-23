@@ -205,7 +205,7 @@ class TypeCollectorVisitor: SyntaxVisitor {
         } else if let actorNode = node.as(ActorDeclSyntax.self) {
             return actorNode.name.text
         } else if let extensionNode = node.as(ExtensionDeclSyntax.self) {
-            return extensionNode.extendedType.description
+            return extensionNode.extendedType.description.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return "Unknown"
     }
@@ -327,7 +327,8 @@ class TypeCollectorVisitor: SyntaxVisitor {
         pattern: IdentifierPatternSyntax
     ) -> PropertyInfo {
         let name = pattern.identifier.text
-        let typeName = extractTypeName(from: binding.typeAnnotation)
+        let defaultValue = binding.initializer?.value.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typeName = extractTypeName(from: binding.typeAnnotation, inferringFrom: defaultValue)
         let accessLevel = extractAccessLevel(from: variableDecl.modifiers)
         let isStatic = hasModifier(variableDecl.modifiers, named: "static")
         let isLet = variableDecl.bindingSpecifier.text == "let"
@@ -335,7 +336,6 @@ class TypeCollectorVisitor: SyntaxVisitor {
         let isWeak = hasModifier(variableDecl.modifiers, named: "weak")
         let isUnowned = hasModifier(variableDecl.modifiers, named: "unowned")
         let isComputed = binding.accessorBlock != nil
-        let defaultValue = binding.initializer?.value.description.trimmingCharacters(in: .whitespacesAndNewlines)
         
         var hasGetter = true
         var hasSetter = false
@@ -596,6 +596,94 @@ class TypeCollectorVisitor: SyntaxVisitor {
         return typeAnnotation?.type.description.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Any"
     }
     
+    private func extractTypeName(from typeAnnotation: TypeAnnotationSyntax?, inferringFrom defaultValue: String?) -> String {
+        // If we have an explicit type annotation, use it
+        if let typeAnnotation = typeAnnotation {
+            return typeAnnotation.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        // If no type annotation, try to infer from default value
+        if let defaultValue = defaultValue {
+            return inferTypeFromDefaultValue(defaultValue)
+        }
+        
+        // Fallback to Any
+        return "Any"
+    }
+    
+    private func inferTypeFromDefaultValue(_ defaultValue: String) -> String {
+        let trimmedValue = defaultValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Boolean literals
+        if trimmedValue == "true" || trimmedValue == "false" {
+            return "Bool"
+        }
+        
+        // Integer literals
+        if trimmedValue.allSatisfy({ $0.isNumber }) {
+            return "Int"
+        }
+        
+        // Float literals (contains decimal point)
+        if trimmedValue.contains(".") && trimmedValue.replacingOccurrences(of: ".", with: "").allSatisfy({ $0.isNumber }) {
+            return "Double"
+        }
+        
+        // String literals (wrapped in quotes)
+        if (trimmedValue.hasPrefix("\"") && trimmedValue.hasSuffix("\"")) ||
+           (trimmedValue.hasPrefix("'") && trimmedValue.hasSuffix("'")) {
+            return "String"
+        }
+        
+        // Array literals
+        if trimmedValue.hasPrefix("[") && trimmedValue.hasSuffix("]") {
+            return "Array"
+        }
+        
+        // Dictionary literals
+        if trimmedValue.hasPrefix("{") && trimmedValue.hasSuffix("}") && trimmedValue.contains(":") {
+            return "Dictionary"
+        }
+        
+        // Set literals
+        if trimmedValue.hasPrefix("Set(") && trimmedValue.hasSuffix(")") {
+            return "Set"
+        }
+        
+        // Nil literal
+        if trimmedValue == "nil" {
+            return "Optional"
+        }
+        
+        // For complex expressions, try to extract constructor calls
+        if let constructorType = extractConstructorType(from: trimmedValue) {
+            return constructorType
+        }
+        
+        // Fallback
+        return "Any"
+    }
+    
+    private func extractConstructorType(from expression: String) -> String? {
+        let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Type() constructor patterns
+        if let parenIndex = trimmed.firstIndex(of: "("), parenIndex > trimmed.startIndex {
+            let typeName = String(trimmed[..<parenIndex])
+            if typeName.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
+                return typeName
+            }
+        }
+        
+        // Static member access like .shared, .default
+        if trimmed.hasPrefix(".") {
+            // Can't infer the type from static member access alone
+            return nil
+        }
+        
+        return nil
+    }
+    
     private func extractReturnType(from returnClause: ReturnClauseSyntax?) -> String? {
         return returnClause?.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -679,13 +767,142 @@ class TypeCollectorVisitor: SyntaxVisitor {
     }
     
     private func extractAssociatedTypes(from node: some SyntaxProtocol) -> [AssociatedTypeInfo] {
-        // TODO: Implement associated type extraction
-        return []
+        var associatedTypes: [AssociatedTypeInfo] = []
+        
+        let memberBlock = extractMemberBlock(from: node)
+        guard let members = memberBlock else { return associatedTypes }
+        
+        for member in members {
+            if let associatedTypeDecl = member.decl.as(AssociatedTypeDeclSyntax.self) {
+                let name = associatedTypeDecl.name.text
+                let inheritedType = associatedTypeDecl.inheritanceClause?.inheritedTypes.first?.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let defaultType = associatedTypeDecl.initializer?.value.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                let whereClause = associatedTypeDecl.genericWhereClause?.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                let associatedType = AssociatedTypeInfo(
+                    name: name,
+                    inheritedType: inheritedType,
+                    defaultType: defaultType,
+                    whereClause: whereClause
+                )
+                associatedTypes.append(associatedType)
+            }
+        }
+        
+        return associatedTypes
     }
     
     private func extractProtocolRequirements(from node: some SyntaxProtocol) -> [ProtocolRequirement] {
-        // TODO: Implement protocol requirements extraction
-        return []
+        var requirements: [ProtocolRequirement] = []
+        
+        // Only extract requirements from protocols
+        guard node.as(ProtocolDeclSyntax.self) != nil else {
+            return requirements
+        }
+        
+        let memberBlock = extractMemberBlock(from: node)
+        guard let members = memberBlock else { return requirements }
+        
+        for member in members {
+            // Extract property requirements
+            if let variableDecl = member.decl.as(VariableDeclSyntax.self) {
+                for binding in variableDecl.bindings {
+                    if let pattern = binding.pattern.as(IdentifierPatternSyntax.self) {
+                        let name = pattern.identifier.text
+                        let typeName = extractTypeName(from: binding.typeAnnotation)
+                        let signature = "\(name): \(typeName)"
+                        
+                        let requirement = ProtocolRequirement(
+                            kind: .property,
+                            name: name,
+                            signature: signature
+                        )
+                        requirements.append(requirement)
+                    }
+                }
+            }
+            
+            // Extract method requirements
+            if let functionDecl = member.decl.as(FunctionDeclSyntax.self) {
+                let name = functionDecl.name.text
+                let parameters = extractParameters(from: functionDecl.signature.parameterClause)
+                let returnType = extractReturnType(from: functionDecl.signature.returnClause)
+                
+                var signature = "\(name)("
+                signature += parameters.map { param in
+                    let label = param.label ?? "_"
+                    return "\(label): \(param.typeName)"
+                }.joined(separator: ", ")
+                signature += ")"
+                
+                if let returnType = returnType {
+                    signature += " -> \(returnType)"
+                }
+                
+                let requirement = ProtocolRequirement(
+                    kind: .method,
+                    name: name,
+                    signature: signature
+                )
+                requirements.append(requirement)
+            }
+            
+            // Extract initializer requirements
+            if let initDecl = member.decl.as(InitializerDeclSyntax.self) {
+                let parameters = extractParameters(from: initDecl.signature.parameterClause)
+                let name = "init"
+                
+                var signature = "init("
+                signature += parameters.map { param in
+                    let label = param.label ?? "_"
+                    return "\(label): \(param.typeName)"
+                }.joined(separator: ", ")
+                signature += ")"
+                
+                let requirement = ProtocolRequirement(
+                    kind: .initializer,
+                    name: name,
+                    signature: signature
+                )
+                requirements.append(requirement)
+            }
+            
+            // Extract subscript requirements
+            if let subscriptDecl = member.decl.as(SubscriptDeclSyntax.self) {
+                let parameters = extractParameters(from: subscriptDecl.parameterClause)
+                let returnType = extractReturnType(from: subscriptDecl.returnClause) ?? "Any"
+                let name = "subscript"
+                
+                var signature = "subscript("
+                signature += parameters.map { param in
+                    let label = param.label ?? "_"
+                    return "\(label): \(param.typeName)"
+                }.joined(separator: ", ")
+                signature += ") -> \(returnType)"
+                
+                let requirement = ProtocolRequirement(
+                    kind: .subscript,
+                    name: name,
+                    signature: signature
+                )
+                requirements.append(requirement)
+            }
+            
+            // Extract associated type requirements
+            if let associatedTypeDecl = member.decl.as(AssociatedTypeDeclSyntax.self) {
+                let name = associatedTypeDecl.name.text
+                let signature = "associatedtype \(name)"
+                
+                let requirement = ProtocolRequirement(
+                    kind: .associatedType,
+                    name: name,
+                    signature: signature
+                )
+                requirements.append(requirement)
+            }
+        }
+        
+        return requirements
     }
     
     private func extractGenericParameters(from node: some SyntaxProtocol) -> [GenericParameterInfo] {

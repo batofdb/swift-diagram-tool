@@ -11,6 +11,16 @@ public class DOTGenerator {
         public let includeExtensions: Bool
         public let focusType: String?
         public let maxDepth: Int
+        public let inheritanceOnly: Bool
+        public let includePhantomNodes: Bool
+        public let focusMode: FocusMode
+        
+        public enum FocusMode {
+            case standard        // Include all relationship types
+            case inheritance     // Focus on inheritance chains
+            case composition     // Focus on composition relationships
+            case protocols       // Focus on protocol relationships
+        }
         
         public init(
             includePrivate: Bool = false,
@@ -18,7 +28,10 @@ public class DOTGenerator {
             includeMethods: Bool = true,
             includeExtensions: Bool = false,
             focusType: String? = nil,
-            maxDepth: Int = 3
+            maxDepth: Int = 3,
+            inheritanceOnly: Bool = false,
+            includePhantomNodes: Bool = true,
+            focusMode: FocusMode = .standard
         ) {
             self.includePrivate = includePrivate
             self.includeProperties = includeProperties
@@ -26,6 +39,9 @@ public class DOTGenerator {
             self.includeExtensions = includeExtensions
             self.focusType = focusType
             self.maxDepth = maxDepth
+            self.inheritanceOnly = inheritanceOnly
+            self.includePhantomNodes = includePhantomNodes
+            self.focusMode = focusMode
         }
     }
     
@@ -53,12 +69,7 @@ public class DOTGenerator {
         output += "    node [shape=record, fontname=\"Helvetica\", fontsize=10];\n"
         output += "    edge [fontname=\"Helvetica\", fontsize=9];\n\n"
         
-        let nodes: [RelationshipGraph.Node]
-        if let focusType = options.focusType {
-            nodes = Array(graph.getRelatedNodes(to: focusType, maxDepth: options.maxDepth))
-        } else {
-            nodes = graph.getAllNodes()
-        }
+        let nodes: [RelationshipGraph.Node] = getFilteredNodes()
         
         // Generate node definitions
         for node in nodes {
@@ -66,11 +77,16 @@ public class DOTGenerator {
                 continue
             }
             
+            // Skip phantom nodes if not requested
+            if !options.includePhantomNodes && node.type.isPhantom {
+                continue
+            }
+            
             output += generateNode(for: node.type)
         }
         
-        // Generate relationships
-        let relationships = graph.getAllRelationships()
+        // Generate relationships with filtering
+        let relationships = getFilteredRelationships(for: nodes)
         let nodeNames = Set(nodes.map { $0.type.name })
         
         for relationship in relationships {
@@ -82,6 +98,140 @@ public class DOTGenerator {
         
         output += "}\n"
         return output
+    }
+    
+    private func getFilteredNodes() -> [RelationshipGraph.Node] {
+        if let focusType = options.focusType {
+            // Use focus-specific filtering based on mode
+            switch options.focusMode {
+            case .standard:
+                return Array(graph.getRelatedNodes(to: focusType, maxDepth: options.maxDepth))
+            case .inheritance:
+                return Array(graph.getInheritanceRelatedNodes(to: focusType, maxDepth: options.maxDepth, includeDescendants: true))
+            case .composition:
+                return Array(getCompositionRelatedNodes(to: focusType, maxDepth: options.maxDepth))
+            case .protocols:
+                return Array(getProtocolRelatedNodes(to: focusType, maxDepth: options.maxDepth))
+            }
+        } else {
+            return graph.getAllNodes()
+        }
+    }
+    
+    private func getFilteredRelationships(for nodes: [RelationshipGraph.Node]) -> [RelationshipGraph.Relationship] {
+        let allRelationships = graph.getAllRelationships()
+        let nodeNames = Set(nodes.map { $0.type.name })
+        
+        var filteredRelationships: [RelationshipGraph.Relationship] = []
+        
+        for relationship in allRelationships {
+            // Skip relationships where nodes aren't in the filtered set
+            guard nodeNames.contains(relationship.from) && nodeNames.contains(relationship.to) else { continue }
+            
+            // Apply relationship type filtering based on mode
+            if shouldIncludeRelationship(relationship, mode: options.focusMode) {
+                filteredRelationships.append(relationship)
+            }
+        }
+        
+        return filteredRelationships
+    }
+    
+    private func shouldIncludeRelationship(_ relationship: RelationshipGraph.Relationship, mode: GeneratorOptions.FocusMode) -> Bool {
+        switch mode {
+        case .standard:
+            return true // Include all relationships
+        case .inheritance:
+            return isInheritanceRelationship(relationship.kind)
+        case .composition:
+            return isCompositionRelationship(relationship.kind)
+        case .protocols:
+            return isProtocolRelationship(relationship.kind)
+        }
+    }
+    
+    private func isInheritanceRelationship(_ kind: RelationshipGraph.Relationship.Kind) -> Bool {
+        switch kind {
+        case .inheritance, .protocolInheritance:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private func isCompositionRelationship(_ kind: RelationshipGraph.Relationship.Kind) -> Bool {
+        switch kind {
+        case .composition, .aggregation, .dependency:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private func isProtocolRelationship(_ kind: RelationshipGraph.Relationship.Kind) -> Bool {
+        switch kind {
+        case .protocolConformance, .implements, .protocolInheritance, .associatedType, 
+             .methodRequirement, .propertyRequirement, .fulfillsRequirement, .resolveAssociatedType:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private func getCompositionRelatedNodes(to typeName: String, maxDepth: Int) -> Set<RelationshipGraph.Node> {
+        var visited = Set<String>()
+        var result = Set<RelationshipGraph.Node>()
+        
+        func traverseComposition(from: String, depth: Int) {
+            guard depth > 0, !visited.contains(from) else { return }
+            visited.insert(from)
+            
+            if let node = graph.getNode(for: from) {
+                result.insert(node)
+            }
+            
+            // Find composition relationships
+            for relationship in graph.getAllRelationships() {
+                guard isCompositionRelationship(relationship.kind) else { continue }
+                
+                if relationship.from == from {
+                    traverseComposition(from: relationship.to, depth: depth - 1)
+                } else if relationship.to == from {
+                    traverseComposition(from: relationship.from, depth: depth - 1)
+                }
+            }
+        }
+        
+        traverseComposition(from: typeName, depth: maxDepth)
+        return result
+    }
+    
+    private func getProtocolRelatedNodes(to typeName: String, maxDepth: Int) -> Set<RelationshipGraph.Node> {
+        var visited = Set<String>()
+        var result = Set<RelationshipGraph.Node>()
+        
+        func traverseProtocol(from: String, depth: Int) {
+            guard depth > 0, !visited.contains(from) else { return }
+            visited.insert(from)
+            
+            if let node = graph.getNode(for: from) {
+                result.insert(node)
+            }
+            
+            // Find protocol relationships
+            for relationship in graph.getAllRelationships() {
+                guard isProtocolRelationship(relationship.kind) else { continue }
+                
+                if relationship.from == from {
+                    traverseProtocol(from: relationship.to, depth: depth - 1)
+                } else if relationship.to == from {
+                    traverseProtocol(from: relationship.from, depth: depth - 1)
+                }
+            }
+        }
+        
+        traverseProtocol(from: typeName, depth: maxDepth)
+        return result
     }
     
     private func generateNode(for type: TypeInfo) -> String {
@@ -165,6 +315,32 @@ public class DOTGenerator {
             edge += " [arrowhead=odiamond, style=solid]"
         case .dependency:
             edge += " [arrowhead=open, style=dashed]"
+        case .implements:
+            edge += " [arrowhead=empty, style=dashed, color=blue]"
+        case .protocolInheritance:
+            edge += " [arrowhead=empty, style=solid, color=purple]"
+        case .injection:
+            edge += " [arrowhead=open, style=dotted, color=green]"
+        case .fulfillsRequirement:
+            edge += " [arrowhead=normal, style=solid, color=orange]"
+        case .genericParameter:
+            edge += " [arrowhead=diamond, style=solid, color=red]"
+        case .genericConstraint:
+            edge += " [arrowhead=open, style=dashed, color=red]"
+        case .wrappedBy:
+            edge += " [arrowhead=box, style=solid, color=magenta]"
+        case .elementType:
+            edge += " [arrowhead=normal, style=solid, color=cyan]"
+        case .associatedType:
+            edge += " [arrowhead=open, style=dashed, color=purple]"
+        case .typeConstraint:
+            edge += " [arrowhead=normal, style=dotted, color=purple]"
+        case .methodRequirement:
+            edge += " [arrowhead=open, style=solid, color=brown]"
+        case .propertyRequirement:
+            edge += " [arrowhead=diamond, style=solid, color=brown]"
+        case .resolveAssociatedType:
+            edge += " [arrowhead=normal, style=dashed, color=gold]"
         }
         
         if let details = relationship.details {
