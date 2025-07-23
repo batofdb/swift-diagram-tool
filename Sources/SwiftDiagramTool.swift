@@ -41,7 +41,7 @@ struct Analyze: ParsableCommand {
     @Option(name: .shortAndLong, help: "Output file path")
     var output: String = "diagram.dot"
 
-    @Option(name: [.customShort("F"), .long], help: "Output format: dot, plantuml, mermaid, json")
+    @Option(name: [.customShort("F"), .long], help: "Output format: dot, plantuml, mermaid, json, html")
     var format: OutputFormat = .dot
 
     @Flag(name: .long, help: "Include private members in the diagram")
@@ -142,6 +142,17 @@ struct Analyze: ParsableCommand {
             let jsonGen = JSONGenerator(mode: .graph(graph))
             generator = try jsonGen.generate()
 
+        case .html:
+            let htmlGen = HTMLGenerator(graph: graph, options: .init(
+                includePrivate: includePrivate,
+                includeProperties: true,
+                includeMethods: true,
+                includeExtensions: includeExtensions,
+                focusType: focus,
+                maxDepth: depth
+            ))
+            generator = try htmlGen.generate()
+
         case .plantuml, .mermaid:
             print("\(format.rawValue.capitalized) format not implemented yet, using DOT format")
             let dotGen = DOTGenerator(graph: graph, options: .init(
@@ -165,4 +176,5 @@ enum OutputFormat: String, ExpressibleByArgument {
     case plantuml
     case mermaid
     case json
+    case html
 }

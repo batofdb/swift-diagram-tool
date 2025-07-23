@@ -134,11 +134,97 @@ struct HTMLAssets {
             flex: 1;
             position: relative;
             background: linear-gradient(135deg, var(--diagram-bg-start), var(--diagram-bg-end));
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .diagram-search-bar {
+            position: relative;
+            padding: 1rem 2rem;
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
+        }
+        
+        #diagram-search-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        #diagram-search-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+        
+        .search-results-overlay {
+            position: absolute;
+            top: 100%;
+            left: 2rem;
+            right: 2rem;
+            background-color: var(--sidebar-bg);
+            border: 1px solid var(--border-color);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            backdrop-filter: blur(10px);
+        }
+        
+        .search-results-overlay.active {
+            display: block;
+        }
+        
+        .search-result-item {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .search-result-item:hover {
+            background-color: var(--button-hover);
+        }
+        
+        .search-result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .search-result-type {
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+        
+        .search-result-kind {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            font-weight: 500;
+        }
+        
+        .search-result-description {
+            color: var(--secondary-color);
+            font-size: 0.875rem;
         }
         
         #diagram {
             width: 100%;
-            height: 100%;
+            flex: 1;
         }
         
         .legend {
@@ -194,6 +280,18 @@ struct HTMLAssets {
             stroke: var(--node-selected);
             stroke-width: 3;
             filter: drop-shadow(0 4px 12px rgba(231, 76, 60, 0.3));
+        }
+        
+        .node.search-highlight {
+            stroke: var(--primary-color);
+            stroke-width: 3;
+            filter: drop-shadow(0 0 8px var(--primary-color)) !important;
+        }
+        
+        .node.focused-node {
+            stroke: #ff6b6b;
+            stroke-width: 4;
+            filter: drop-shadow(0 0 12px #ff6b6b) !important;
         }
         
         .node-text {
@@ -464,11 +562,29 @@ struct HTMLAssets {
             setupEventListeners() {
                 d3.select('#reset-zoom').on('click', () => this.resetZoom());
                 d3.select('#toggle-theme').on('click', () => this.toggleTheme());
+                
+                // Original search input (keep for sidebar functionality)
                 d3.select('#search-input').on('input', (e) => this.handleSearch(e.target.value));
+                
+                // New diagram search input
+                d3.select('#diagram-search-input').on('input', (e) => this.handleDiagramSearch(e.target.value));
+                d3.select('#diagram-search-input').on('focus', () => this.showSearchResults());
+                d3.select('#diagram-search-input').on('blur', () => {
+                    // Delay hiding to allow clicking on results
+                    setTimeout(() => this.hideSearchResults(), 150);
+                });
+                
                 d3.select('#show-properties').on('change', () => this.render());
                 d3.select('#show-methods').on('change', () => this.render());
                 d3.select('#show-initializers').on('change', () => this.render());
                 d3.select('#show-private').on('change', () => this.render());
+                
+                // Close search results when clicking outside
+                d3.select('body').on('click', (event) => {
+                    if (!event.target.closest('.diagram-search-bar')) {
+                        this.hideSearchResults();
+                    }
+                });
                 
                 // Keyboard shortcuts
                 d3.select('body').on('keydown', (event) => {
@@ -480,9 +596,15 @@ struct HTMLAssets {
                                 break;
                             case 'f':
                                 event.preventDefault();
-                                d3.select('#search-input').node().focus();
+                                d3.select('#diagram-search-input').node().focus();
                                 break;
                         }
+                    }
+                    
+                    // ESC to close search results
+                    if (event.key === 'Escape') {
+                        this.hideSearchResults();
+                        d3.select('#diagram-search-input').node().blur();
                     }
                 });
             }
@@ -540,6 +662,121 @@ struct HTMLAssets {
                     .classed('search-highlight', d => 
                         query && filtered.some(f => f.type.name === d.type.name)
                     );
+            }
+            
+            handleDiagramSearch(query) {
+                if (!query.trim()) {
+                    this.hideSearchResults();
+                    // Remove all highlighting
+                    this.container.selectAll('.node').classed('search-highlight', false);
+                    return;
+                }
+                
+                const filtered = this.data.nodes.filter(node => 
+                    node.type.name.toLowerCase().includes(query.toLowerCase()) ||
+                    node.type.kind.toLowerCase().includes(query.toLowerCase()) ||
+                    (node.type.properties && node.type.properties.some(prop => 
+                        prop.name.toLowerCase().includes(query.toLowerCase())
+                    )) ||
+                    (node.type.methods && node.type.methods.some(method => 
+                        method.name.toLowerCase().includes(query.toLowerCase())
+                    ))
+                );
+                
+                this.displaySearchResults(filtered, query);
+                
+                // Highlight matching nodes in the diagram
+                this.container.selectAll('.node')
+                    .classed('search-highlight', d => 
+                        filtered.some(f => f.type.name === d.type.name)
+                    );
+            }
+            
+            displaySearchResults(results, query) {
+                const searchResults = d3.select('#search-results');
+                
+                if (results.length === 0) {
+                    searchResults.html('<div class="search-result-item"><div class="search-result-description">No results found</div></div>');
+                    this.showSearchResults();
+                    return;
+                }
+                
+                const items = searchResults.selectAll('.search-result-item')
+                    .data(results.slice(0, 10), d => d.type.name); // Show max 10 results
+                
+                items.exit().remove();
+                
+                const itemsEnter = items.enter()
+                    .append('div')
+                    .attr('class', 'search-result-item')
+                    .on('click', (event, d) => this.focusOnNode(d));
+                
+                const itemsUpdate = itemsEnter.merge(items);
+                
+                itemsUpdate.html(d => {
+                    const matchingProps = d.type.properties ? d.type.properties.filter(prop => 
+                        prop.name.toLowerCase().includes(query.toLowerCase())
+                    ).slice(0, 3) : [];
+                    
+                    const matchingMethods = d.type.methods ? d.type.methods.filter(method => 
+                        method.name.toLowerCase().includes(query.toLowerCase())
+                    ).slice(0, 3) : [];
+                    
+                    let description = '';
+                    if (matchingProps.length > 0) {
+                        description += 'Properties: ' + matchingProps.map(p => p.name).join(', ');
+                    }
+                    if (matchingMethods.length > 0) {
+                        if (description) description += ' • ';
+                        description += 'Methods: ' + matchingMethods.map(m => m.name).join(', ');
+                    }
+                    
+                    return `
+                        <div class="search-result-type">\\${d.type.name}</div>
+                        <div class="search-result-kind">\\${d.type.kind}</div>
+                        \\${description ? `<div class="search-result-description">\\${description}</div>` : ''}
+                    `;
+                });
+                
+                this.showSearchResults();
+            }
+            
+            showSearchResults() {
+                d3.select('#search-results').classed('active', true);
+            }
+            
+            hideSearchResults() {
+                d3.select('#search-results').classed('active', false);
+            }
+            
+            focusOnNode(nodeData) {
+                // Find the node in the diagram and zoom to it
+                const node = this.container.select(`.node[data-name="\\${nodeData.type.name}"]`).node();
+                if (node) {
+                    const bbox = node.getBBox();
+                    const centerX = bbox.x + bbox.width / 2;
+                    const centerY = bbox.y + bbox.height / 2;
+                    
+                    // Calculate transform to center the node
+                    const svg = d3.select('#diagram');
+                    const svgRect = svg.node().getBoundingClientRect();
+                    const scale = 1.5;
+                    const translateX = svgRect.width / 2 - centerX * scale;
+                    const translateY = svgRect.height / 2 - centerY * scale;
+                    
+                    // Apply zoom transform
+                    svg.transition()
+                        .duration(750)
+                        .call(this.zoom.transform, d3.zoomIdentity.translate(translateX, translateY).scale(scale));
+                    
+                    // Temporarily highlight the focused node
+                    d3.select(node).classed('focused-node', true);
+                    setTimeout(() => {
+                        d3.select(node).classed('focused-node', false);
+                    }, 2000);
+                }
+                
+                this.hideSearchResults();
             }
             
             getNodeColor(kind) {
@@ -631,6 +868,7 @@ struct HTMLAssets {
                 // Add rectangles for nodes
                 node.append('rect')
                     .attr('class', 'node')
+                    .attr('data-name', d => d.type.name)
                     .attr('width', d => this.getNodeWidth(d, showProperties, showMethods, showInitializers))
                     .attr('height', d => this.getNodeHeight(d, showProperties, showMethods, showInitializers))
                     .attr('rx', 8)

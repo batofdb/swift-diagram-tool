@@ -593,13 +593,16 @@ class TypeCollectorVisitor: SyntaxVisitor {
     }
     
     private func extractTypeName(from typeAnnotation: TypeAnnotationSyntax?) -> String {
-        return typeAnnotation?.type.description.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Any"
+        guard let typeAnnotation = typeAnnotation else { return "Any" }
+        let typeDescription = typeAnnotation.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return extractCleanTypeName(typeDescription)
     }
     
     private func extractTypeName(from typeAnnotation: TypeAnnotationSyntax?, inferringFrom defaultValue: String?) -> String {
         // If we have an explicit type annotation, use it
         if let typeAnnotation = typeAnnotation {
-            return typeAnnotation.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let typeDescription = typeAnnotation.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            return extractCleanTypeName(typeDescription)
         }
         
         // If no type annotation, try to infer from default value
@@ -685,7 +688,9 @@ class TypeCollectorVisitor: SyntaxVisitor {
     }
     
     private func extractReturnType(from returnClause: ReturnClauseSyntax?) -> String? {
-        return returnClause?.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let returnClause = returnClause else { return nil }
+        let typeDescription = returnClause.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return extractCleanTypeName(typeDescription)
     }
     
     private func extractParameters(from parameterClause: FunctionParameterClauseSyntax) -> [ParameterInfo] {
@@ -694,7 +699,8 @@ class TypeCollectorVisitor: SyntaxVisitor {
         for parameter in parameterClause.parameters {
             let label = parameter.firstName.text == "_" ? nil : parameter.firstName.text
             let name = parameter.secondName?.text ?? parameter.firstName.text
-            let typeName = parameter.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let typeDescription = parameter.type.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let typeName = extractCleanTypeName(typeDescription)
             let defaultValue = parameter.defaultValue?.value.description.trimmingCharacters(in: .whitespacesAndNewlines)
             let isInout = parameter.type.description.contains("inout") // Simple check for inout parameters
             let isVariadic = parameter.ellipsis != nil
@@ -928,5 +934,100 @@ class TypeCollectorVisitor: SyntaxVisitor {
     private func extractAttributes(from node: some SyntaxProtocol) -> [AttributeInfo] {
         // TODO: Implement full attribute extraction
         return []
+    }
+    
+    // MARK: - Type Annotation Parsing
+    
+    /// Represents parsed type information with flags
+    private struct ParsedTypeInfo {
+        let baseTypeName: String
+        let isOptional: Bool
+        let isArray: Bool
+        let genericParameters: [String]
+        let fullTypeName: String // Original type name for debugging
+        
+        init(baseTypeName: String, isOptional: Bool = false, isArray: Bool = false, genericParameters: [String] = [], fullTypeName: String) {
+            self.baseTypeName = baseTypeName
+            self.isOptional = isOptional
+            self.isArray = isArray
+            self.genericParameters = genericParameters
+            self.fullTypeName = fullTypeName
+        }
+    }
+    
+    /// Parse a type annotation and extract clean base type name with flags
+    private func parseTypeAnnotation(_ typeDescription: String) -> ParsedTypeInfo {
+        let trimmed = typeDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Handle optional types (String?, UIImage?, etc.)
+        if trimmed.hasSuffix("?") {
+            let baseType = String(trimmed.dropLast())
+            let parsed = parseTypeAnnotation(baseType)
+            return ParsedTypeInfo(
+                baseTypeName: parsed.baseTypeName,
+                isOptional: true,
+                isArray: parsed.isArray,
+                genericParameters: parsed.genericParameters,
+                fullTypeName: trimmed
+            )
+        }
+        
+        // Handle array types ([String], [UIImage], etc.)
+        if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+            let elementType = String(trimmed.dropFirst().dropLast())
+            let parsed = parseTypeAnnotation(elementType)
+            return ParsedTypeInfo(
+                baseTypeName: parsed.baseTypeName,
+                isOptional: parsed.isOptional,
+                isArray: true,
+                genericParameters: parsed.genericParameters,
+                fullTypeName: trimmed
+            )
+        }
+        
+        // Handle generic types (Array<String>, Dictionary<String, Int>, etc.)
+        if let openBracket = trimmed.firstIndex(of: "<"),
+           let closeBracket = trimmed.lastIndex(of: ">") {
+            let baseType = String(trimmed[..<openBracket])
+            let genericPart = String(trimmed[trimmed.index(after: openBracket)..<closeBracket])
+            let genericParams = parseGenericParameters(genericPart)
+            
+            return ParsedTypeInfo(
+                baseTypeName: baseType,
+                isOptional: false,
+                isArray: false,
+                genericParameters: genericParams,
+                fullTypeName: trimmed
+            )
+        }
+        
+        // Simple type (String, Int, CustomClass, etc.)
+        return ParsedTypeInfo(
+            baseTypeName: trimmed,
+            isOptional: false,
+            isArray: false,
+            genericParameters: [],
+            fullTypeName: trimmed
+        )
+    }
+    
+    /// Parse generic parameters from a generic clause
+    private func parseGenericParameters(_ genericClause: String) -> [String] {
+        // Simple comma-separated parsing (could be enhanced for nested generics)
+        return genericClause.split(separator: ",").map { 
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) 
+        }
+    }
+    
+    /// Extract clean base type name from any Swift type annotation
+    private func extractCleanTypeName(_ typeDescription: String) -> String {
+        let parsed = parseTypeAnnotation(typeDescription)
+        return parsed.baseTypeName
+    }
+    
+    /// Check if a type should be treated as optional based on the type annotation
+    private func isOptionalType(_ typeDescription: String) -> Bool {
+        let parsed = parseTypeAnnotation(typeDescription)
+        return parsed.isOptional
     }
 }

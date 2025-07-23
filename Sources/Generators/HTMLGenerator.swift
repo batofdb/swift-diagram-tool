@@ -97,6 +97,10 @@ public class HTMLGenerator {
                     </div>
                     
                     <div class="diagram-container">
+                        <div class="diagram-search-bar">
+                            <input type="text" id="diagram-search-input" placeholder="Search types across the entire diagram...">
+                            <div id="search-results" class="search-results-overlay"></div>
+                        </div>
                         <svg id="diagram"></svg>
                     </div>
                 </div>
