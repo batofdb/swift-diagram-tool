@@ -7,6 +7,19 @@ class SwiftDiagramVisualization {
         this.simulation = null;
         this.currentTheme = 'light';
         
+        // Performance optimization properties
+        this.renderDebounceTimer = null;
+        this.isRendering = false;
+        this.pendingRenderRequests = 0;
+        this.lastRenderTime = 0;
+        this.targetFPS = 60;
+        this.frameTime = 1000 / this.targetFPS;
+        this.performanceMetrics = {
+            renderCount: 0,
+            averageRenderTime: 0,
+            lastFrameTimes: []
+        };
+        
         this.zoom = d3.zoom()
             .scaleExtent([0.1, 3])
             .on('zoom', this.handleZoom.bind(this));
@@ -14,7 +27,7 @@ class SwiftDiagramVisualization {
         this.svg.call(this.zoom);
         this.setupEventListeners();
         this.setupDefinitions();
-        this.render();
+        this.debouncedRender();
     }
     
     setupEventListeners() {
@@ -32,10 +45,10 @@ class SwiftDiagramVisualization {
             setTimeout(() => this.hideSearchResults(), 150);
         });
         
-        d3.select('#show-properties').on('change', () => this.render());
-        d3.select('#show-methods').on('change', () => this.render());
-        d3.select('#show-initializers').on('change', () => this.render());
-        d3.select('#show-private').on('change', () => this.render());
+        d3.select('#show-properties').on('change', () => this.debouncedRender());
+        d3.select('#show-methods').on('change', () => this.debouncedRender());
+        d3.select('#show-initializers').on('change', () => this.debouncedRender());
+        d3.select('#show-private').on('change', () => this.debouncedRender());
         
         // Close search results when clicking outside
         d3.select('body').on('click', (event) => {
@@ -113,20 +126,26 @@ class SwiftDiagramVisualization {
             node.type.name.toLowerCase().includes(query.toLowerCase()) ||
             node.type.kind.toLowerCase().includes(query.toLowerCase())
         );
-        this.updateTypeList(filtered);
         
-        // Highlight matching nodes in the diagram
-        this.container.selectAll('.node')
-            .classed('search-highlight', d => 
-                query && filtered.some(f => f.type.name === d.type.name)
-            );
+        // Use requestAnimationFrame for smoother UI updates
+        requestAnimationFrame(() => {
+            this.updateTypeList(filtered);
+            
+            // Highlight matching nodes in the diagram
+            this.container.selectAll('.node')
+                .classed('search-highlight', d => 
+                    query && filtered.some(f => f.type.name === d.type.name)
+                );
+        });
     }
     
     handleDiagramSearch(query) {
         if (!query.trim()) {
-            this.hideSearchResults();
-            // Remove all highlighting
-            this.container.selectAll('.node').classed('search-highlight', false);
+            requestAnimationFrame(() => {
+                this.hideSearchResults();
+                // Remove all highlighting
+                this.container.selectAll('.node').classed('search-highlight', false);
+            });
             return;
         }
         
@@ -141,13 +160,16 @@ class SwiftDiagramVisualization {
             ))
         );
         
-        this.displaySearchResults(filtered, query);
-        
-        // Highlight matching nodes in the diagram
-        this.container.selectAll('.node')
-            .classed('search-highlight', d => 
-                filtered.some(f => f.type.name === d.type.name)
-            );
+        // Use requestAnimationFrame for smoother UI updates
+        requestAnimationFrame(() => {
+            this.displaySearchResults(filtered, query);
+            
+            // Highlight matching nodes in the diagram
+            this.container.selectAll('.node')
+                .classed('search-highlight', d => 
+                    filtered.some(f => f.type.name === d.type.name)
+                );
+        });
     }
     
     displaySearchResults(results, query) {
@@ -258,7 +280,58 @@ class SwiftDiagramVisualization {
         return colors[kind] || '#95a5a6';
     }
     
+    // Debounced rendering for performance optimization
+    debouncedRender(delay = 100) {
+        // Cancel any pending render
+        if (this.renderDebounceTimer) {
+            clearTimeout(this.renderDebounceTimer);
+        }
+        
+        this.pendingRenderRequests++;
+        
+        this.renderDebounceTimer = setTimeout(() => {
+            this.performOptimizedRender();
+        }, delay);
+    }
+    
+    performOptimizedRender() {
+        // Prevent multiple simultaneous renders
+        if (this.isRendering) {
+            // Queue another render if needed
+            if (this.pendingRenderRequests > 1) {
+                this.debouncedRender(50);
+            }
+            return;
+        }
+        
+        const currentTime = performance.now();
+        const timeSinceLastRender = currentTime - this.lastRenderTime;
+        
+        // Throttle rendering to maintain target FPS
+        if (timeSinceLastRender < this.frameTime) {
+            setTimeout(() => this.performOptimizedRender(), this.frameTime - timeSinceLastRender);
+            return;
+        }
+        
+        this.isRendering = true;
+        this.pendingRenderRequests = 0;
+        this.lastRenderTime = currentTime;
+        
+        // Use requestAnimationFrame for smoother rendering
+        requestAnimationFrame(() => {
+            this.render();
+            this.isRendering = false;
+            
+            // Handle any pending render requests
+            if (this.pendingRenderRequests > 0) {
+                this.debouncedRender(16); // ~60fps
+            }
+        });
+    }
+    
     render() {
+        const renderStart = performance.now();
+        
         const showProperties = d3.select('#show-properties').property('checked');
         const showMethods = d3.select('#show-methods').property('checked');
         const showInitializers = d3.select('#show-initializers').property('checked');
@@ -271,6 +344,29 @@ class SwiftDiagramVisualization {
         
         this.renderDiagram(filteredNodes, showProperties, showMethods, showInitializers);
         this.updateTypeList(filteredNodes);
+        
+        // Track performance metrics
+        const renderTime = performance.now() - renderStart;
+        this.updatePerformanceMetrics(renderTime);
+    }
+    
+    updatePerformanceMetrics(renderTime) {
+        this.performanceMetrics.renderCount++;
+        this.performanceMetrics.lastFrameTimes.push(renderTime);
+        
+        // Keep only last 60 frame times for rolling average
+        if (this.performanceMetrics.lastFrameTimes.length > 60) {
+            this.performanceMetrics.lastFrameTimes.shift();
+        }
+        
+        // Calculate rolling average
+        const sum = this.performanceMetrics.lastFrameTimes.reduce((a, b) => a + b, 0);
+        this.performanceMetrics.averageRenderTime = sum / this.performanceMetrics.lastFrameTimes.length;
+        
+        // Log performance warnings for slow renders
+        if (renderTime > 100) {
+            console.warn(`Slow render detected: ${renderTime.toFixed(2)}ms (Average: ${this.performanceMetrics.averageRenderTime.toFixed(2)}ms)`);
+        }
     }
     
     renderDiagram(nodes, showProperties, showMethods, showInitializers) {
@@ -337,15 +433,25 @@ class SwiftDiagramVisualization {
         // Add node content
         this.addNodeContent(node, showProperties, showMethods, showInitializers);
         
-        // Update simulation
+        // Optimized simulation tick handler with requestAnimationFrame
+        let tickRequestId = null;
         this.simulation.on('tick', () => {
-            link
-                .attr('x1', d => d.source.x + this.getNodeWidth(d.source, showProperties, showMethods, showInitializers) / 2)
-                .attr('y1', d => d.source.y + this.getNodeHeight(d.source, showProperties, showMethods, showInitializers) / 2)
-                .attr('x2', d => d.target.x + this.getNodeWidth(d.target, showProperties, showMethods, showInitializers) / 2)
-                .attr('y2', d => d.target.y + this.getNodeHeight(d.target, showProperties, showMethods, showInitializers) / 2);
+            // Cancel previous frame request if still pending
+            if (tickRequestId) {
+                cancelAnimationFrame(tickRequestId);
+            }
             
-            node.attr('transform', d => `translate(${d.x},${d.y})`);
+            // Use requestAnimationFrame for smoother animations
+            tickRequestId = requestAnimationFrame(() => {
+                link
+                    .attr('x1', d => d.source.x + this.getNodeWidth(d.source, showProperties, showMethods, showInitializers) / 2)
+                    .attr('y1', d => d.source.y + this.getNodeHeight(d.source, showProperties, showMethods, showInitializers) / 2)
+                    .attr('x2', d => d.target.x + this.getNodeWidth(d.target, showProperties, showMethods, showInitializers) / 2)
+                    .attr('y2', d => d.target.y + this.getNodeHeight(d.target, showProperties, showMethods, showInitializers) / 2);
+                
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+                tickRequestId = null;
+            });
         });
     }
     

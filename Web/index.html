@@ -70,6 +70,7 @@
         </div>
         
         <div class="legend">
+            <button class="legend-toggle" title="Toggle Legend">▼</button>
             <div class="legend-item">
                 <div class="legend-color class-color"></div>
                 <span>Class</span>
@@ -101,6 +102,9 @@
     <script>
         // Initialize the application when DOM is ready
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize enhanced UI features
+            window.enhancedUI = new EnhancedUI();
+            
             // Initialize data loader for file upload and JSON selection
             window.dataLoader = new DataLoader();
         });

@@ -4,6 +4,7 @@ class EnhancedUI {
         this.setupSidebarToggle();
         this.setupFloatingControls();
         this.setupThemeToggle();
+        this.setupLegendToggle();
         this.setupKeyboardShortcuts();
         this.setupResponsiveFeatures();
     }
@@ -80,6 +81,46 @@ class EnhancedUI {
         if (themeToggle) {
             themeToggle.innerHTML = savedTheme === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
         }
+    }
+    
+    setupLegendToggle() {
+        const legendToggle = document.querySelector('.legend-toggle');
+        const legend = document.querySelector('.legend');
+        
+        if (!legendToggle || !legend) return;
+        
+        // Load saved legend state from localStorage
+        const savedState = localStorage.getItem('legend-collapsed') === 'true';
+        if (savedState) {
+            legend.classList.add('collapsed');
+            legendToggle.textContent = '▲';
+        }
+        
+        legendToggle.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent legend click from triggering
+            
+            const isCollapsed = legend.classList.contains('collapsed');
+            
+            if (isCollapsed) {
+                // Expand legend
+                legend.classList.remove('collapsed');
+                legendToggle.textContent = '▼';
+                localStorage.setItem('legend-collapsed', 'false');
+            } else {
+                // Collapse legend
+                legend.classList.add('collapsed');
+                legendToggle.textContent = '▲';
+                localStorage.setItem('legend-collapsed', 'true');
+            }
+        });
+        
+        // Add keyboard shortcut for legend toggle (L key)
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'l' || e.key === 'L') && !e.target.matches('input, textarea')) {
+                e.preventDefault();
+                legendToggle.click();
+            }
+        });
     }
     
     setupKeyboardShortcuts() {
