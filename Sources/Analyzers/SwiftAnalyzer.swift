@@ -422,8 +422,8 @@ class TypeCollectorVisitor: SyntaxVisitor {
         let isMutating = hasModifier(functionDecl.modifiers, named: "mutating")
         let isNonMutating = hasModifier(functionDecl.modifiers, named: "nonmutating")
         let isAsync = functionDecl.signature.effectSpecifiers?.asyncSpecifier != nil
-        let `throws` = functionDecl.signature.effectSpecifiers?.throwsSpecifier != nil
-        let `rethrows` = functionDecl.signature.effectSpecifiers?.throwsSpecifier?.text == "rethrows"
+        let `throws` = functionDecl.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil
+        let `rethrows` = functionDecl.signature.effectSpecifiers?.throwsClause?.throwsSpecifier.text == "rethrows"
         let genericParameters = extractGenericParameters(from: functionDecl.genericParameterClause)
         let genericConstraints = extractGenericConstraints(from: functionDecl.genericWhereClause)
         let whereClause = functionDecl.genericWhereClause?.description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -476,7 +476,7 @@ class TypeCollectorVisitor: SyntaxVisitor {
         let isConvenience = hasModifier(initDecl.modifiers, named: "convenience")
         let isRequired = hasModifier(initDecl.modifiers, named: "required")
         let isAsync = initDecl.signature.effectSpecifiers?.asyncSpecifier != nil
-        let `throws` = initDecl.signature.effectSpecifiers?.throwsSpecifier != nil
+        let `throws` = initDecl.signature.effectSpecifiers?.throwsClause?.throwsSpecifier != nil
         let genericParameters = extractGenericParameters(from: initDecl.genericParameterClause)
         let genericConstraints = extractGenericConstraints(from: initDecl.genericWhereClause)
         let whereClause = initDecl.genericWhereClause?.description.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -720,7 +720,7 @@ class TypeCollectorVisitor: SyntaxVisitor {
     
     private func extractEffectSpecifiers(from effectSpecifiers: AccessorEffectSpecifiersSyntax?) -> EffectSpecifiers {
         let isAsync = effectSpecifiers?.asyncSpecifier != nil
-        let `throws` = effectSpecifiers?.throwsSpecifier != nil
+        let `throws` = effectSpecifiers?.throwsClause?.throwsSpecifier != nil
         return EffectSpecifiers(isAsync: isAsync, throws: `throws`)
     }
     

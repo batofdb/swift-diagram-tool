@@ -113,6 +113,7 @@ public struct PropertyInfo: Codable, Equatable {
     public let hasDidSet: Bool
     public let defaultValue: String?
     public let attributes: [AttributeInfo]
+    public let isFromExtension: Bool
 
     public init(
         name: String,
@@ -131,7 +132,8 @@ public struct PropertyInfo: Codable, Equatable {
         hasWillSet: Bool = false,
         hasDidSet: Bool = false,
         defaultValue: String? = nil,
-        attributes: [AttributeInfo] = []
+        attributes: [AttributeInfo] = [],
+        isFromExtension: Bool = false
     ) {
         self.name = name
         self.typeName = typeName
@@ -150,6 +152,7 @@ public struct PropertyInfo: Codable, Equatable {
         self.hasDidSet = hasDidSet
         self.defaultValue = defaultValue
         self.attributes = attributes
+        self.isFromExtension = isFromExtension
     }
 }
 
@@ -174,6 +177,7 @@ public struct MethodInfo: Codable, Equatable {
     public let genericConstraints: [GenericConstraintInfo]
     public let whereClause: String?
     public let attributes: [AttributeInfo]
+    public let isFromExtension: Bool
 
     public init(
         name: String,
@@ -193,7 +197,8 @@ public struct MethodInfo: Codable, Equatable {
         genericParameters: [GenericParameterInfo] = [],
         genericConstraints: [GenericConstraintInfo] = [],
         whereClause: String? = nil,
-        attributes: [AttributeInfo] = []
+        attributes: [AttributeInfo] = [],
+        isFromExtension: Bool = false
     ) {
         self.name = name
         self.parameters = parameters
@@ -213,6 +218,7 @@ public struct MethodInfo: Codable, Equatable {
         self.genericConstraints = genericConstraints
         self.whereClause = whereClause
         self.attributes = attributes
+        self.isFromExtension = isFromExtension
     }
 }
 
@@ -230,6 +236,7 @@ public struct InitializerInfo: Codable, Equatable {
     public let genericConstraints: [GenericConstraintInfo]
     public let whereClause: String?
     public let attributes: [AttributeInfo]
+    public let isFromExtension: Bool
 
     public init(
         parameters: [ParameterInfo] = [],
@@ -242,7 +249,8 @@ public struct InitializerInfo: Codable, Equatable {
         genericParameters: [GenericParameterInfo] = [],
         genericConstraints: [GenericConstraintInfo] = [],
         whereClause: String? = nil,
-        attributes: [AttributeInfo] = []
+        attributes: [AttributeInfo] = [],
+        isFromExtension: Bool = false
     ) {
         self.parameters = parameters
         self.accessLevel = accessLevel
@@ -255,6 +263,7 @@ public struct InitializerInfo: Codable, Equatable {
         self.genericConstraints = genericConstraints
         self.whereClause = whereClause
         self.attributes = attributes
+        self.isFromExtension = isFromExtension
     }
 }
 
