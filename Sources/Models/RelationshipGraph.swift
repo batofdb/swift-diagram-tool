@@ -62,32 +62,93 @@ public class RelationshipGraph {
     
     private var nodes: [String: Node] = [:]
     private var relationships: Set<Relationship> = []
+    private var pendingExtensions: [String: [TypeInfo]] = [:] // Type name -> list of extensions
     
     public init() {}
     
     public func addType(_ type: TypeInfo) {
-        // Handle extension merging into existing types
-        if let existingNode = nodes[type.name] {
-            if type.kind == .extension && (existingNode.type.kind == .class || existingNode.type.kind == .struct) {
-                // Merge extension into existing class/struct
-                let mergedType = mergeExtensionIntoType(baseType: existingNode.type, extension: type)
-                let mergedNode = Node(type: mergedType)
-                nodes[type.name] = mergedNode
-                addTypeRelationships(mergedType)
-                return
-            } else if (type.kind == .class || type.kind == .struct) && existingNode.type.kind == .extension {
-                // Merge existing extension into new class/struct
-                let mergedType = mergeExtensionIntoType(baseType: type, extension: existingNode.type)
-                let mergedNode = Node(type: mergedType)
-                nodes[type.name] = mergedNode
-                addTypeRelationships(mergedType)
-                return
+        if type.kind == .extension {
+            // Accumulate extensions instead of immediately processing them
+            if pendingExtensions[type.name] == nil {
+                pendingExtensions[type.name] = []
+            }
+            pendingExtensions[type.name]?.append(type)
+            
+            // If we already have a base type, merge all pending extensions
+            if let existingNode = nodes[type.name] {
+                if existingNode.type.kind == .class || existingNode.type.kind == .struct || existingNode.type.kind == .protocol || existingNode.type.kind == .actor {
+                    consolidateExtensions(for: type.name)
+                }
+            }
+        } else {
+            // This is a base type (class, struct, protocol, etc.)
+            let node = Node(type: type)
+            nodes[type.name] = node
+            addTypeRelationships(type)
+            
+            // If we have pending extensions for this type, merge them now
+            if pendingExtensions[type.name] != nil {
+                consolidateExtensions(for: type.name)
             }
         }
+    }
+    
+    private func consolidateExtensions(for typeName: String) {
+        guard let baseNode = nodes[typeName],
+              let extensions = pendingExtensions[typeName],
+              !extensions.isEmpty else {
+            return
+        }
         
-        let node = Node(type: type)
-        nodes[type.name] = node
-        addTypeRelationships(type)
+        // Remove existing relationships for this type to avoid duplicates
+        relationships = relationships.filter { $0.from != typeName }
+        
+        // Merge all extensions into the base type
+        var mergedType = baseNode.type
+        
+        for extensionType in extensions {
+            mergedType = mergeExtensionIntoType(baseType: mergedType, extension: extensionType)
+        }
+        
+        // Replace the node with the fully merged type
+        let consolidatedNode = Node(type: mergedType)
+        nodes[typeName] = consolidatedNode
+        
+        // Clear pending extensions for this type
+        pendingExtensions.removeValue(forKey: typeName)
+        
+        // Add relationships for the consolidated type (this will include all merged content)
+        addTypeRelationships(mergedType)
+    }
+    
+    // Method to finalize any remaining pending extensions (call after all types are added)
+    public func finalizePendingExtensions() {
+        for (typeName, extensions) in pendingExtensions {
+            if extensions.isEmpty { continue }
+            
+            // If no base type was found, create a placeholder and merge extensions
+            if nodes[typeName] == nil {
+                // Create a minimal base type from the first extension
+                let firstExtension = extensions[0]
+                let baseType = TypeInfo(
+                    name: typeName,
+                    kind: .class, // Default to class for orphaned extensions
+                    moduleName: firstExtension.moduleName,
+                    accessLevel: firstExtension.accessLevel,
+                    location: firstExtension.location,
+                    isPhantom: false
+                )
+                
+                let baseNode = Node(type: baseType)
+                nodes[typeName] = baseNode
+            }
+            
+            // Consolidate all extensions
+            consolidateExtensions(for: typeName)
+        }
+        
+        // Clear all pending extensions
+        pendingExtensions.removeAll()
     }
     
     private func addTypeRelationships(_ type: TypeInfo) {

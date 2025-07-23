@@ -113,6 +113,9 @@ struct Analyze: ParsableCommand {
             graph.addType(type)
         }
         
+        // Finalize any pending extension consolidation
+        graph.finalizePendingExtensions()
+        
         // Analyze protocol relationships after all types are added
         graph.analyzeProtocolRelationships()
         
